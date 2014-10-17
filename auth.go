@@ -140,6 +140,34 @@ func (a Authorizer) Login(rw http.ResponseWriter, req *http.Request, u string, p
     http.Redirect(rw, req, dest, http.StatusSeeOther)
     return nil
 }
+//
+// MTN MLN version for basic auth login instead
+// NO REDIRECT..clears the redirect flash
+//
+func (a Authorizer) LoginBasicAuth(rw http.ResponseWriter, req *http.Request, u string, p string) error {
+    session, _ := a.cookiejar.Get(req, "auth")
+    if session.Values["username"] != nil {
+        return mkerror("already authenticated")
+    }
+    if user, err := a.backend.User(u); err == nil {
+        verify := bcrypt.CompareHashAndPassword(user.Hash, []byte(u+p))
+        if verify != nil {
+            a.addMessage(rw, req, "Invalid username or password.")
+            return mkerror("password doesn't match")
+        }
+    } else {
+        a.addMessage(rw, req, "Invalid username or password.")
+        return mkerror("user not found")
+    }
+    session.Values["username"] = u
+    session.Save(req, rw)
+    //
+    // clear the redirect flash
+    a.cookiejar.Get(req, "redirects")
+
+    //http.Redirect(rw, req, dest, http.StatusSeeOther)
+    return nil
+}
 
 // Register and save a new user. Returns an error and adds a message if the
 // username is in use.
@@ -323,8 +351,13 @@ func (a Authorizer) CurrentUser(rw http.ResponseWriter, req *http.Request) (user
 func (a Authorizer) Logout(rw http.ResponseWriter, req *http.Request) error {
     session, _ := a.cookiejar.Get(req, "auth")
     defer session.Save(req, rw)
-
     session.Options.MaxAge = -1 // kill the cookie
+    //
+    // MTN MLN kill the redirects also
+    redirectSession, _ := a.cookiejar.Get(req, "redirects")
+    defer redirectSession.Save(req, rw)
+    redirectSession.Options.MaxAge = -1 // kill the cookie
+
     a.addMessage(rw, req, "Logged out.")
     return nil
 }
